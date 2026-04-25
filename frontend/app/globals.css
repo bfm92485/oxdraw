@@ -932,3 +932,167 @@ body > div:first-of-type {
   background: var(--bg-tertiary);
   font-weight: 600;
 }
+
+/* ===== UX Bundle: node search & shortcuts modals ===== */
+
+.node-search-overlay,
+.shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  z-index: 1000;
+}
+
+[data-theme="dark"] .node-search-overlay,
+[data-theme="dark"] .shortcuts-overlay {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.node-search-modal {
+  width: min(560px, 92vw);
+  max-height: 70vh;
+  background: var(--bg-primary, #ffffff);
+  color: var(--text-primary, #111);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-primary, #d1d5db);
+}
+
+.node-search-input {
+  border: 0;
+  border-bottom: 1px solid var(--border-primary, #d1d5db);
+  background: transparent;
+  color: inherit;
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.node-search-input::placeholder {
+  color: var(--text-secondary, #6b7280);
+}
+
+.node-search-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  overflow-y: auto;
+  max-height: 50vh;
+}
+
+.node-search-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+
+.node-search-item.active,
+.node-search-item:hover {
+  background: var(--bg-tertiary, #eef2ff);
+  border-left-color: var(--accent-primary, #3b82f6);
+}
+
+.node-search-label {
+  font-weight: 500;
+}
+
+.node-search-id {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6b7280);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.node-search-empty {
+  padding: 1rem;
+  color: var(--text-secondary, #6b7280);
+  text-align: center;
+  font-style: italic;
+}
+
+.node-search-hint {
+  border-top: 1px solid var(--border-primary, #d1d5db);
+  padding: 0.45rem 1rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6b7280);
+  background: var(--bg-secondary, #f9fafb);
+}
+
+.shortcuts-modal {
+  width: min(480px, 92vw);
+  background: var(--bg-primary, #ffffff);
+  color: var(--text-primary, #111);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-primary, #d1d5db);
+  overflow: hidden;
+}
+
+.shortcuts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-primary, #d1d5db);
+}
+
+.shortcuts-header h2 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.shortcuts-close {
+  background: none;
+  border: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-secondary, #6b7280);
+}
+
+.shortcuts-close:hover {
+  color: var(--text-primary, #111);
+}
+
+.shortcuts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.shortcuts-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.4rem 1rem;
+}
+
+.shortcuts-combo {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  background: var(--bg-tertiary, #f3f4f6);
+  border: 1px solid var(--border-primary, #d1d5db);
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.8rem;
+  min-width: 140px;
+  text-align: center;
+  color: var(--text-primary, #111);
+}
+
+.shortcuts-description {
+  flex: 1;
+  font-size: 0.9rem;
+}

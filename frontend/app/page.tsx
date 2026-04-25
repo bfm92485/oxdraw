@@ -12,6 +12,18 @@ import {
 import WasmDiagramCanvas from "../components/WasmDiagramCanvas";
 import MarkdownViewer from "../components/MarkdownViewer";
 import CodePanel from "../components/CodePanel";
+import NodeSearch from "../components/NodeSearch";
+import ShortcutsHelp from "../components/ShortcutsHelp";
+import {
+  buildShortcutList,
+  copyBlobToClipboard,
+  copyTextToClipboard as copyTextHelper,
+  downloadBlob as downloadBlobHelper,
+  isMacPlatform,
+  svgMarkupToBlob,
+  svgMarkupToPngBlob as svgToPngBlob,
+  toExportFilename,
+} from "../lib/exportHelpers";
 import {
   buildLocalShareUrl,
   deleteEdge,
@@ -282,87 +294,9 @@ const normalizeColorInput = (value: string): string => value.trim().toLowerCase(
 const hasCodeAnnotations = (source: string): boolean =>
   /^\s*%%\s*OXDRAW CODE\b/m.test(source);
 
-const loadImageFromUrl = (url: string): Promise<HTMLImageElement> =>
-  new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Unable to render diagram for PNG download."));
-    image.src = url;
-  });
-
-const svgMarkupToPngBlob = async (svgMarkup: string): Promise<Blob> => {
-  const svgBlob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
-  const svgUrl = URL.createObjectURL(svgBlob);
-  try {
-    const image = await loadImageFromUrl(svgUrl);
-    const width = image.naturalWidth || image.width;
-    const height = image.naturalHeight || image.height;
-    if (!width || !height) {
-      throw new Error("Diagram has no renderable size.");
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Canvas support is required to download PNG files.");
-    }
-
-    context.clearRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-
-    const pngBlob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/png")
-    );
-    if (!pngBlob) {
-      throw new Error("Failed to encode PNG download.");
-    }
-    return pngBlob;
-  } finally {
-    URL.revokeObjectURL(svgUrl);
-  }
-};
-
-const downloadBlob = (blob: Blob, filename: string): void => {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-};
-
-const toPngFilename = (sourcePath: string): string => {
-  const basename = sourcePath.split("/").pop() ?? "diagram";
-  return basename.replace(/\.[^.]+$/, "") + ".png";
-};
-
-const copyTextToClipboard = async (text: string): Promise<void> => {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "true");
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    const copied = document.execCommand("copy");
-    if (!copied) {
-      throw new Error("Clipboard copy failed.");
-    }
-  } finally {
-    textarea.remove();
-  }
-};
+const downloadBlob = downloadBlobHelper;
+const copyTextToClipboard = copyTextHelper;
+const svgMarkupToPngBlob = svgToPngBlob;
 
 const LOCAL_MODE = isLocalMode();
 
@@ -398,19 +332,36 @@ export default function Home() {
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const [svgMarkup, setSvgMarkup] = useState("");
   const [downloadingPng, setDownloadingPng] = useState(false);
+  const [downloadingSvg, setDownloadingSvg] = useState(false);
+  const [copyingDiagram, setCopyingDiagram] = useState(false);
+  const [diagramCopied, setDiagramCopied] = useState(false);
   const [sharingLink, setSharingLink] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [nodeSearchOpen, setNodeSearchOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [resetFlash, setResetFlash] = useState(false);
 
   const saveTimer = useRef<number | null>(null);
   const lastSubmittedSource = useRef<string | null>(null);
   const nodeImageInputRef = useRef<HTMLInputElement | null>(null);
   const imagePaddingValueRef = useRef(imagePaddingValue);
   const shareCopiedTimer = useRef<number | null>(null);
+  const diagramCopiedTimer = useRef<number | null>(null);
+  const resetFlashTimer = useRef<number | null>(null);
+
+  const isMac = useMemo(() => isMacPlatform(), []);
+  const shortcuts = useMemo(() => buildShortcutList(isMac), [isMac]);
 
   useEffect(() => {
     return () => {
       if (shareCopiedTimer.current !== null) {
         window.clearTimeout(shareCopiedTimer.current);
+      }
+      if (diagramCopiedTimer.current !== null) {
+        window.clearTimeout(diagramCopiedTimer.current);
+      }
+      if (resetFlashTimer.current !== null) {
+        window.clearTimeout(resetFlashTimer.current);
       }
     };
   }, []);
@@ -1345,7 +1296,24 @@ const handleResetOverrides = useCallback(() => {
   }
 
   void applyUpdate({ nodes: nodesUpdate, edges: edgesUpdate });
+  setResetFlash(true);
+  if (resetFlashTimer.current !== null) {
+    window.clearTimeout(resetFlashTimer.current);
+  }
+  resetFlashTimer.current = window.setTimeout(() => {
+    setResetFlash(false);
+    resetFlashTimer.current = null;
+  }, 1500);
 }, [applyUpdate, diagram]);
+
+const handleJumpToNode = useCallback(
+  (nodeId: string) => {
+    setNodeSearchOpen(false);
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+  },
+  []
+);
 
 const handleDownloadPng = useCallback(async () => {
   if (!diagram || !svgMarkup || downloadingPng) {
@@ -1356,13 +1324,73 @@ const handleDownloadPng = useCallback(async () => {
     setDownloadingPng(true);
     setError(null);
     const pngBlob = await svgMarkupToPngBlob(svgMarkup);
-    downloadBlob(pngBlob, toPngFilename(diagram.sourcePath));
+    downloadBlob(pngBlob, toExportFilename(diagram.sourcePath, "png"));
   } catch (err) {
     setError((err as Error).message);
   } finally {
     setDownloadingPng(false);
   }
 }, [diagram, downloadingPng, svgMarkup]);
+
+const handleDownloadSvg = useCallback(() => {
+  if (!diagram || !svgMarkup || downloadingSvg) {
+    return;
+  }
+  try {
+    setDownloadingSvg(true);
+    setError(null);
+    const blob = svgMarkupToBlob(svgMarkup);
+    downloadBlob(blob, toExportFilename(diagram.sourcePath, "svg"));
+  } catch (err) {
+    setError((err as Error).message);
+  } finally {
+    setDownloadingSvg(false);
+  }
+}, [diagram, downloadingSvg, svgMarkup]);
+
+const flashDiagramCopied = useCallback(() => {
+  setDiagramCopied(true);
+  if (diagramCopiedTimer.current !== null) {
+    window.clearTimeout(diagramCopiedTimer.current);
+  }
+  diagramCopiedTimer.current = window.setTimeout(() => {
+    setDiagramCopied(false);
+    diagramCopiedTimer.current = null;
+  }, 1800);
+}, []);
+
+const handleCopySvg = useCallback(async () => {
+  if (!svgMarkup || copyingDiagram) {
+    return;
+  }
+  try {
+    setCopyingDiagram(true);
+    setError(null);
+    await copyTextHelper(svgMarkup);
+    flashDiagramCopied();
+  } catch (err) {
+    setError((err as Error).message);
+  } finally {
+    setCopyingDiagram(false);
+  }
+}, [copyingDiagram, flashDiagramCopied, svgMarkup]);
+
+const handleCopyPng = useCallback(async () => {
+  if (!svgMarkup || copyingDiagram) {
+    return;
+  }
+  try {
+    setCopyingDiagram(true);
+    setError(null);
+    const pngBlob = await svgMarkupToPngBlob(svgMarkup);
+    await copyBlobToClipboard(pngBlob);
+    flashDiagramCopied();
+  } catch (err) {
+    setError((err as Error).message);
+  } finally {
+    setCopyingDiagram(false);
+  }
+}, [copyingDiagram, flashDiagramCopied, svgMarkup]);
 
 const handleShare = useCallback(async () => {
   if (!LOCAL_MODE || codedownMode || sharingLink) {
@@ -1402,17 +1430,29 @@ const statusMessage = useMemo(() => {
   if (downloadingPng) {
     return "Preparing PNG download...";
   }
+  if (downloadingSvg) {
+    return "Preparing SVG download...";
+  }
+  if (copyingDiagram) {
+    return "Copying diagram...";
+  }
+  if (diagramCopied) {
+    return "Diagram copied to clipboard.";
+  }
   if (sharingLink) {
     return "Preparing share link...";
   }
   if (shareCopied) {
     return "Share link copied.";
   }
+  if (resetFlash) {
+    return "Manual layout cleared.";
+  }
   if (error) {
     return `Error: ${error}`;
   }
   return diagram ? `Editing ${diagram.sourcePath}` : "No diagram selected";
-}, [diagram, downloadingPng, error, loading, saving, shareCopied, sharingLink, sourceSaving]);
+}, [diagram, downloadingPng, downloadingSvg, copyingDiagram, diagramCopied, error, loading, resetFlash, saving, shareCopied, sharingLink, sourceSaving]);
 
 useEffect(() => {
   if (!diagram || dragging) {
@@ -1582,27 +1622,126 @@ const nodeControlsDisabled = !selectedNode || saving;
 const edgeControlsDisabled = !selectedEdge || saving;
 
 useEffect(() => {
+  const isEditingTarget = (target: EventTarget | null): boolean => {
+    if (!target || !(target instanceof HTMLElement)) {
+      return false;
+    }
+    const tag = target.tagName;
+    return (
+      tag === "TEXTAREA" ||
+      tag === "INPUT" ||
+      tag === "SELECT" ||
+      target.isContentEditable
+    );
+  };
+
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Delete" && event.key !== "Backspace") {
+    const editing = isEditingTarget(event.target) ||
+      isEditingTarget(document.activeElement);
+    const mod = event.metaKey || event.ctrlKey;
+
+    // Esc closes overlays / clears selection (always works, even from inputs).
+    if (event.key === "Escape") {
+      if (nodeSearchOpen) {
+        event.preventDefault();
+        setNodeSearchOpen(false);
+        return;
+      }
+      if (shortcutsOpen) {
+        event.preventDefault();
+        setShortcutsOpen(false);
+        return;
+      }
+      if (!editing && (selectedNodeId || selectedEdgeId)) {
+        event.preventDefault();
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+      }
       return;
     }
-    const active = document.activeElement as HTMLElement | null;
-    if (
-      active &&
-      (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable)
-    ) {
+
+    // Cmd/Ctrl-based shortcuts. Allowed even from inputs because they don't
+    // interfere with normal typing.
+    if (mod && !event.altKey) {
+      const key = event.key.toLowerCase();
+      if (key === "e") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleDownloadSvg();
+        } else {
+          void handleDownloadPng();
+        }
+        return;
+      }
+      if (key === "f" && !event.shiftKey && !codedownMode) {
+        if (diagram && diagram.nodes.length > 0) {
+          event.preventDefault();
+          setShortcutsOpen(false);
+          setNodeSearchOpen(true);
+        }
+        return;
+      }
+      if (key === "r" && event.shiftKey) {
+        event.preventDefault();
+        handleResetOverrides();
+        return;
+      }
+      // Cmd+Shift+C copies PNG, Cmd+C copies SVG only when nothing is
+      // selected for normal copy AND no text selection is active.
+      if (key === "c" && event.shiftKey) {
+        if (!editing) {
+          event.preventDefault();
+          void handleCopyPng();
+        }
+        return;
+      }
+      if (key === "c" && !event.shiftKey) {
+        const selection = typeof window !== "undefined" ? window.getSelection() : null;
+        const hasTextSelection = selection ? selection.toString().length > 0 : false;
+        if (!editing && !hasTextSelection && svgMarkup) {
+          event.preventDefault();
+          void handleCopySvg();
+        }
+        return;
+      }
+    }
+
+    if (editing) {
       return;
     }
-    if (!selectedNodeId && !selectedEdgeId) {
+
+    if (event.key === "?" || (event.shiftKey && event.key === "/")) {
+      event.preventDefault();
+      setShortcutsOpen((current) => !current);
       return;
     }
-    event.preventDefault();
-    void handleDeleteSelection();
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      if (!selectedNodeId && !selectedEdgeId) {
+        return;
+      }
+      event.preventDefault();
+      void handleDeleteSelection();
+    }
   };
 
   window.addEventListener("keydown", handleKeyDown);
   return () => window.removeEventListener("keydown", handleKeyDown);
-}, [handleDeleteSelection, selectedEdgeId, selectedNodeId]);
+}, [
+  codedownMode,
+  diagram,
+  handleCopyPng,
+  handleCopySvg,
+  handleDeleteSelection,
+  handleDownloadPng,
+  handleDownloadSvg,
+  handleResetOverrides,
+  nodeSearchOpen,
+  selectedEdgeId,
+  selectedNodeId,
+  shortcutsOpen,
+  svgMarkup,
+]);
 
 const handleLineClick = useCallback((line: number) => {
   if (!codeMapMapping || !selectedFile) return;
@@ -1642,11 +1781,44 @@ return (
           {theme === "light" ? "Dark Mode" : "Light Mode"}
         </button>
         <button
+          onClick={() => {
+            setShortcutsOpen(false);
+            if (diagram && diagram.nodes.length > 0) {
+              setNodeSearchOpen(true);
+            }
+          }}
+          disabled={codedownMode || !diagram || diagram.nodes.length === 0 || loading}
+          title={`Find a node by ID or label (${isMac ? "⌘" : "Ctrl"}+F)`}
+        >
+          Find Node
+        </button>
+        <button
           onClick={() => void handleDownloadPng()}
           disabled={codedownMode || !diagram || !svgMarkup || loading || saving || sourceSaving || downloadingPng}
-          title="Download the current diagram as a PNG"
+          title={`Download the current diagram as a PNG (${isMac ? "⌘" : "Ctrl"}+E)`}
         >
           {downloadingPng ? "Downloading PNG..." : "Download PNG"}
+        </button>
+        <button
+          onClick={handleDownloadSvg}
+          disabled={codedownMode || !diagram || !svgMarkup || loading || saving || sourceSaving || downloadingSvg}
+          title={`Download the current diagram as an SVG (${isMac ? "⌘" : "Ctrl"}+${isMac ? "⇧" : "Shift"}+E)`}
+        >
+          {downloadingSvg ? "Downloading SVG..." : "Download SVG"}
+        </button>
+        <button
+          onClick={() => void handleCopySvg()}
+          disabled={codedownMode || !diagram || !svgMarkup || loading || saving || sourceSaving || copyingDiagram}
+          title={`Copy SVG markup to clipboard (${isMac ? "⌘" : "Ctrl"}+C)`}
+        >
+          {copyingDiagram ? "Copying..." : diagramCopied ? "Copied" : "Copy SVG"}
+        </button>
+        <button
+          onClick={() => void handleCopyPng()}
+          disabled={codedownMode || !diagram || !svgMarkup || loading || saving || sourceSaving || copyingDiagram}
+          title={`Copy diagram as PNG image to clipboard (${isMac ? "⌘" : "Ctrl"}+${isMac ? "⇧" : "Shift"}+C)`}
+        >
+          Copy PNG
         </button>
         {LOCAL_MODE && (
           <button
@@ -1668,9 +1840,9 @@ return (
         <button
           onClick={handleResetOverrides}
           disabled={!hasOverrides(diagram) || saving || sourceSaving}
-          title="Remove all manual positions"
+          title={`Remove all manual positions (${isMac ? "⌘" : "Ctrl"}+${isMac ? "⇧" : "Shift"}+R)`}
         >
-          Reset overrides
+          Reset Layout
         </button>
         <button
           onClick={() => void handleDeleteSelection()}
@@ -1678,6 +1850,13 @@ return (
           title="Delete the currently selected node or edge"
         >
           Delete selected
+        </button>
+        <button
+          onClick={() => setShortcutsOpen((current) => !current)}
+          title="Show keyboard shortcuts (?)"
+          aria-label="Show keyboard shortcuts"
+        >
+          ?
         </button>
       </div>
     </header>
@@ -2086,6 +2265,17 @@ return (
         {error}
       </footer>
     )}
+    <NodeSearch
+      open={nodeSearchOpen && !!diagram}
+      nodes={diagram?.nodes ?? []}
+      onClose={() => setNodeSearchOpen(false)}
+      onSelect={handleJumpToNode}
+    />
+    <ShortcutsHelp
+      open={shortcutsOpen}
+      shortcuts={shortcuts}
+      onClose={() => setShortcutsOpen(false)}
+    />
   </div>
 );
 }
